@@ -2,4 +2,4 @@
 import "./initFirebase.js";
 
 export {translateStories} from "./translateStories.js";
-export {scheduledIngestTick} from "./scheduled/ingestPlaceholder.js";
+export {scheduledIngestTick} from "./scheduled/scheduledIngest.js";

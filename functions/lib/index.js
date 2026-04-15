@@ -5,6 +5,6 @@ exports.scheduledIngestTick = exports.translateStories = void 0;
 require("./initFirebase.js");
 var translateStories_js_1 = require("./translateStories.js");
 Object.defineProperty(exports, "translateStories", { enumerable: true, get: function () { return translateStories_js_1.translateStories; } });
-var ingestPlaceholder_js_1 = require("./scheduled/ingestPlaceholder.js");
-Object.defineProperty(exports, "scheduledIngestTick", { enumerable: true, get: function () { return ingestPlaceholder_js_1.scheduledIngestTick; } });
+var scheduledIngest_js_1 = require("./scheduled/scheduledIngest.js");
+Object.defineProperty(exports, "scheduledIngestTick", { enumerable: true, get: function () { return scheduledIngest_js_1.scheduledIngestTick; } });
 //# sourceMappingURL=index.js.map
