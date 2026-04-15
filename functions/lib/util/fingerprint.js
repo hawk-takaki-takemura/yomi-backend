@@ -1,15 +1,24 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.identityFingerprint = identityFingerprint;
+exports.storyIdentityFingerprint = storyIdentityFingerprint;
 exports.signalsFingerprint = signalsFingerprint;
 const node_crypto_1 = require("node:crypto");
-/**
- * タイトル・URL ベースの同一性（同一記事の要約・本文取得の再実行判定に使う）。
- * score / descendants は含めない（ランキング変動で無駄な LLM を避ける）。
- */
-function identityFingerprint(title, url) {
-    const payload = `${title}\n${url ?? ""}`;
+function sha256Hex32(payload) {
     return (0, node_crypto_1.createHash)("sha256").update(payload, "utf8").digest("hex").slice(0, 32);
+}
+/**
+ * ストーリー同一性（要約・本文取得の再実行判定）。
+ * - 通常: title + url
+ * - Ask/Show 等（url なし）: title + text 先頭（スクレイピング不要で Enrich に渡せる）
+ * score / descendants は含めない。
+ */
+function storyIdentityFingerprint(title, item) {
+    const url = item.url?.trim() ?? "";
+    if (url) {
+        return sha256Hex32(`${title}\n${url}`);
+    }
+    const snippet = (item.text ?? "").trim().slice(0, 4000);
+    return sha256Hex32(`${title}\n\n${snippet}`);
 }
 /** 議論の活況度など。将来コメント要約の差分更新に使う（記事要約キューとは別判定可）。 */
 function signalsFingerprint(score, descendants, kidsCount) {

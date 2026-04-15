@@ -39,6 +39,7 @@ const logger = __importStar(require("firebase-functions/logger"));
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const config_js_1 = require("../config.js");
 const client_js_1 = require("../hn/client.js");
+const storyPolicy_js_1 = require("../hn/storyPolicy.js");
 const fingerprint_js_1 = require("../util/fingerprint.js");
 /** topstories から取り込む件数 */
 const TOP_STORY_LIMIT = 120;
@@ -72,9 +73,14 @@ function buildFeedMeta(topSlice, newSlice) {
 }
 /**
  * HN の topstories / newstories を定期取得し、`hn_items` に merge する。
+ *
  * - **トップ**: `last_seen_in_top_at` が更新されたストーリーが直近のトップスナップショットに載ったもの。
- * - **新着**: `new_snapshot_at` + `new_snapshot_rank` で「その取得バッチ内の新しい順」を再現（同一バッチは rank 昇順、バッチ跨ぎは snapshot 降順など）。
- * - **HOT（コメント多い順）**: HN の `descendants` をそのまま載せる。並び替えはクライアントまたは `orderBy('descendants')` のクエリで行う。
+ * - **新着**: `new_snapshot_at` + `new_snapshot_rank`（同一バッチは rank 昇順が自然）。
+ *   Firestore の複合インデックスと読み取りコストを抑えたい場合は、`new_snapshot_at` のみクエリし rank はクライアントで 120 件ソートする手もある。
+ * - **HOT**: `descendants` で並べ替え。過去の時点 HOT や全文検索が必要なら Algolia HN Search 等の同期を別途検討。
+ *
+ * **モデレーション**: `dead` / `deleted` に加え `[deleted]` 等のタイトルを取り込まない。
+ * **Ask/Show**: `is_text_post` と `hn_text_char_count` を付与し、Enrich は URL 取得ではなく `text` を入力にできる。
  */
 exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
     schedule: "every day 04:00",
@@ -99,11 +105,11 @@ exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
             skipped++;
             continue;
         }
-        const title = item.title?.trim();
-        if (item.type !== "story" || !title || item.deleted || item.dead) {
+        if (item.type !== "story" || (0, storyPolicy_js_1.isStoryHiddenByModeration)(item)) {
             skipped++;
             continue;
         }
+        const title = item.title.trim();
         const ref = firestore.collection(exports.HN_ITEMS_COLLECTION).doc(String(id));
         const meta = feedMeta.get(id);
         entries.push({ ref, item, title, meta });
@@ -120,8 +126,10 @@ exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
         const descendants = typeof item.descendants === "number" ? item.descendants : 0;
         const kidsCount = Array.isArray(item.kids) ? item.kids.length : 0;
         const url = item.url ?? null;
-        const idFp = (0, fingerprint_js_1.identityFingerprint)(title, url);
+        const idFp = (0, fingerprint_js_1.storyIdentityFingerprint)(title, item);
         const sigFp = (0, fingerprint_js_1.signalsFingerprint)(score, descendants, kidsCount);
+        const textPost = (0, storyPolicy_js_1.isHnTextPost)(item);
+        const hnTextCharCount = textPost ? (item.text ?? "").trim().length : 0;
         const firstIngested = prev?.first_ingested_at ?? admin.firestore.FieldValue.serverTimestamp();
         const data = {
             story_id: item.id,
@@ -136,6 +144,8 @@ exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
             identity_fingerprint: idFp,
             signals_fingerprint: sigFp,
             first_ingested_at: firstIngested,
+            is_text_post: textPost,
+            hn_text_char_count: hnTextCharCount,
         };
         if (meta.inTop) {
             data.last_seen_in_top_at = admin.firestore.FieldValue.serverTimestamp();
@@ -145,8 +155,15 @@ exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
             data.new_snapshot_rank = meta.newRank;
         }
         hnWrites.push({ ref, data });
-        const needArticleEnrich = !snap.exists || prev?.identity_fingerprint !== idFp;
-        if (needArticleEnrich) {
+        /**
+         * Claude を無駄に叩かない: 同一 identity で要約済みかつパイプライン版が一致ならキューしない。
+         * 要約ワーカー未デプロイ時は毎回キューに載るが merge のみ（日次なら許容。高頻度取り込みならキュー doc の status で抑止を検討）。
+         */
+        const enrichAlreadyOk = snap.exists &&
+            prev?.identity_fingerprint === idFp &&
+            prev?.article_enrich_complete === true &&
+            prev?.article_pipeline_version === config_js_1.ENRICH_PIPELINE_VERSION;
+        if (!enrichAlreadyOk) {
             queueWrites.push({
                 ref: firestore.collection(exports.ENRICH_QUEUE_COLLECTION).doc(String(item.id)),
                 data: {
