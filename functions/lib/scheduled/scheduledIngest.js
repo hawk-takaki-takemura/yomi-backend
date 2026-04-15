@@ -40,19 +40,41 @@ const scheduler_1 = require("firebase-functions/v2/scheduler");
 const config_js_1 = require("../config.js");
 const client_js_1 = require("../hn/client.js");
 const fingerprint_js_1 = require("../util/fingerprint.js");
-/** 1 回のスケジュールで取り込む top ストーリー件数（HN API 負荷と書き込み量のバランス） */
+/** topstories から取り込む件数 */
 const TOP_STORY_LIMIT = 120;
+/** newstories から取り込む件数（配列先頭が最新） */
+const NEW_STORY_LIMIT = 120;
 /** HN item 取得の同時実行数 */
 const FETCH_CONCURRENCY = 20;
 /** Firestore バッチ上限 500 未満に抑える */
 const FIRESTORE_BATCH_SIZE = 400;
-/** Firestore: ランキング由来の生ストーリー（要約・翻訳は enrich 側） */
+/** Firestore: ストーリー正本（トップ／新着の両方から merge 更新） */
 exports.HN_ITEMS_COLLECTION = "hn_items";
 /** 本文取得・要約など「重い処理」のキュー（差分のみ積む） */
 exports.ENRICH_QUEUE_COLLECTION = "enrich_queue";
+/** top / new の id をマージし、各 id のリスト所属メタを付与する */
+function buildFeedMeta(topSlice, newSlice) {
+    const map = new Map();
+    for (let i = 0; i < newSlice.length; i++) {
+        const id = newSlice[i];
+        map.set(id, { inTop: false, inNew: true, newRank: i });
+    }
+    for (const id of topSlice) {
+        const prev = map.get(id);
+        if (prev) {
+            map.set(id, { ...prev, inTop: true });
+        }
+        else {
+            map.set(id, { inTop: true, inNew: false });
+        }
+    }
+    return map;
+}
 /**
- * HN topstories を定期取得し、Firestore `hn_items` に upsert する。
- * 同一性フィンガープリントが変わったときだけ `enrich_queue` に積み、要約・LLM は差分のみ走らせる前提とする。
+ * HN の topstories / newstories を定期取得し、`hn_items` に merge する。
+ * - **トップ**: `last_seen_in_top_at` が更新されたストーリーが直近のトップスナップショットに載ったもの。
+ * - **新着**: `new_snapshot_at` + `new_snapshot_rank` で「その取得バッチ内の新しい順」を再現（同一バッチは rank 昇順、バッチ跨ぎは snapshot 降順など）。
+ * - **HOT（コメント多い順）**: HN の `descendants` をそのまま載せる。並び替えはクライアントまたは `orderBy('descendants')` のクエリで行う。
  */
 exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
     schedule: "every day 04:00",
@@ -61,26 +83,36 @@ exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
     timeoutSeconds: 300,
     memory: "512MiB",
 }, async () => {
-    const topIds = await (0, client_js_1.fetchTopStoryIds)();
-    const slice = topIds.slice(0, TOP_STORY_LIMIT);
-    const items = await (0, client_js_1.fetchItemsInBatches)(slice, FETCH_CONCURRENCY);
+    const [topIds, newIds] = await Promise.all([(0, client_js_1.fetchTopStoryIds)(), (0, client_js_1.fetchNewStoryIds)()]);
+    const topSlice = topIds.slice(0, TOP_STORY_LIMIT);
+    const newSlice = newIds.slice(0, NEW_STORY_LIMIT);
+    const feedMeta = buildFeedMeta(topSlice, newSlice);
+    const uniqueIds = [...feedMeta.keys()];
+    const items = await (0, client_js_1.fetchItemsInBatches)(uniqueIds, FETCH_CONCURRENCY);
     const firestore = admin.firestore();
+    const newSnapshotAt = admin.firestore.Timestamp.now();
     let skipped = 0;
     const entries = [];
-    for (const [, item] of items) {
+    for (const id of uniqueIds) {
+        const item = items.get(id);
+        if (!item) {
+            skipped++;
+            continue;
+        }
         const title = item.title?.trim();
         if (item.type !== "story" || !title || item.deleted || item.dead) {
             skipped++;
             continue;
         }
-        const ref = firestore.collection(exports.HN_ITEMS_COLLECTION).doc(String(item.id));
-        entries.push({ ref, item, title });
+        const ref = firestore.collection(exports.HN_ITEMS_COLLECTION).doc(String(id));
+        const meta = feedMeta.get(id);
+        entries.push({ ref, item, title, meta });
     }
     const snaps = await Promise.all(entries.map((e) => e.ref.get()));
     const hnWrites = [];
     const queueWrites = [];
     for (let i = 0; i < entries.length; i++) {
-        const { ref, item, title } = entries[i];
+        const { ref, item, title, meta } = entries[i];
         const snap = snaps[i];
         const prev = snap.data();
         const seconds = typeof item.time === "number" ? item.time : 0;
@@ -91,25 +123,28 @@ exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
         const idFp = (0, fingerprint_js_1.identityFingerprint)(title, url);
         const sigFp = (0, fingerprint_js_1.signalsFingerprint)(score, descendants, kidsCount);
         const firstIngested = prev?.first_ingested_at ?? admin.firestore.FieldValue.serverTimestamp();
-        hnWrites.push({
-            ref,
-            data: {
-                story_id: item.id,
-                type: "story",
-                title,
-                url,
-                score,
-                by: item.by ?? null,
-                time: admin.firestore.Timestamp.fromMillis(seconds * 1000),
-                descendants,
-                kids_count: kidsCount,
-                source: "topstories",
-                identity_fingerprint: idFp,
-                signals_fingerprint: sigFp,
-                last_seen_in_top_at: admin.firestore.FieldValue.serverTimestamp(),
-                first_ingested_at: firstIngested,
-            },
-        });
+        const data = {
+            story_id: item.id,
+            type: "story",
+            title,
+            url,
+            score,
+            by: item.by ?? null,
+            time: admin.firestore.Timestamp.fromMillis(seconds * 1000),
+            descendants,
+            kids_count: kidsCount,
+            identity_fingerprint: idFp,
+            signals_fingerprint: sigFp,
+            first_ingested_at: firstIngested,
+        };
+        if (meta.inTop) {
+            data.last_seen_in_top_at = admin.firestore.FieldValue.serverTimestamp();
+        }
+        if (meta.inNew && meta.newRank !== undefined) {
+            data.new_snapshot_at = newSnapshotAt;
+            data.new_snapshot_rank = meta.newRank;
+        }
+        hnWrites.push({ ref, data });
         const needArticleEnrich = !snap.exists || prev?.identity_fingerprint !== idFp;
         if (needArticleEnrich) {
             queueWrites.push({
@@ -141,7 +176,8 @@ exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
     }
     logger.info("scheduledIngestTick.done", {
         topListLen: topIds.length,
-        fetched: items.size,
+        newListLen: newIds.length,
+        uniqueFetched: uniqueIds.length,
         written: hnWrites.length,
         skipped,
         enrichQueued: queueWrites.length,

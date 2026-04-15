@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.fetchTopStoryIds = fetchTopStoryIds;
+exports.fetchNewStoryIds = fetchNewStoryIds;
 exports.fetchItem = fetchItem;
 exports.fetchItemsInBatches = fetchItemsInBatches;
 const logger = __importStar(require("firebase-functions/logger"));
@@ -50,11 +51,19 @@ async function fetchJson(path) {
     }
     return (await res.json());
 }
-/** topstories の id 一覧（新しい順ではなく人気スコアベースのランキング） */
+/** topstories の id 一覧（人気スコアベースのランキング） */
 async function fetchTopStoryIds() {
     const ids = await fetchJson("/topstories.json");
     if (!ids || !Array.isArray(ids)) {
         throw new Error("HN topstories.json invalid");
+    }
+    return ids;
+}
+/** newstories の id 一覧（先頭ほど新しい） */
+async function fetchNewStoryIds() {
+    const ids = await fetchJson("/newstories.json");
+    if (!ids || !Array.isArray(ids)) {
+        throw new Error("HN newstories.json invalid");
     }
     return ids;
 }

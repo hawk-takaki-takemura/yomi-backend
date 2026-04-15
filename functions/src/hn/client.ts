@@ -17,11 +17,20 @@ async function fetchJson<T>(path: string): Promise<T | null> {
   return (await res.json()) as T;
 }
 
-/** topstories の id 一覧（新しい順ではなく人気スコアベースのランキング） */
+/** topstories の id 一覧（人気スコアベースのランキング） */
 export async function fetchTopStoryIds(): Promise<number[]> {
   const ids = await fetchJson<number[]>("/topstories.json");
   if (!ids || !Array.isArray(ids)) {
     throw new Error("HN topstories.json invalid");
+  }
+  return ids;
+}
+
+/** newstories の id 一覧（先頭ほど新しい） */
+export async function fetchNewStoryIds(): Promise<number[]> {
+  const ids = await fetchJson<number[]>("/newstories.json");
+  if (!ids || !Array.isArray(ids)) {
+    throw new Error("HN newstories.json invalid");
   }
   return ids;
 }
