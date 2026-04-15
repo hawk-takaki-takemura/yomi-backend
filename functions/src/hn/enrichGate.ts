@@ -5,10 +5,13 @@ import {ENRICH_PIPELINE_VERSION} from "../config.js";
  *
  * **ワーカー想定**（ingest と同一 `hn_items` doc を merge）:
  * - ジョブ開始: `enrich_status: "processing"`
- * - 成功: `enrich_status: "completed"`, `article_pipeline_version: ENRICH_PIPELINE_VERSION`（`article_enrich_complete: true` は任意・レガシー互換）
- * - 失敗: `enrich_status: "failed"`（ingest が同一 identity なら再キュー可能）
+ * - 成功: `enrich_status: "completed"`, `article_pipeline_version: ENRICH_PIPELINE_VERSION`、
+ *   `enrich_failure_count: 0`（または FieldValue.delete）、`article_enrich_complete: true` は任意
+ * - 失敗: `enrich_status: "failed"`, `enrich_failure_count: FieldValue.increment(1)`、
+ *   `enrich_last_failed_at: serverTimestamp()`（任意）、`article_pipeline_version` は試行した版を記録推奨
  *
  * ingest はキュー投入時のみ `enrich_status: "pending"` を書く。`pending` / `processing` 中は `enrich_queue` へ載せない。
+ * `failed` かつ失敗回数が上限に達したものはデッドレターとして再キューしない（同一パイプライン版のときのみ）。
  */
 export type EnrichStatus = "idle" | "pending" | "processing" | "completed" | "failed";
 
@@ -19,6 +22,8 @@ export type HnItemEnrichFields = {
   article_enrich_complete?: boolean;
   article_pipeline_version?: number;
   enrich_status?: EnrichStatus;
+  /** ワーカーが失敗のたびに increment。ingest は identity / パイプライン変更時に 0 に戻す */
+  enrich_failure_count?: number;
 };
 
 /** 同一 identity で要約済みかつパイプライン版が一致（キュー不要） */
@@ -60,4 +65,31 @@ export function shouldSkipEnqueueDueToInFlightEnrich(
     return false;
   }
   return prev.enrich_status === "pending" || prev.enrich_status === "processing";
+}
+
+/**
+ * 同一 identity で失敗が上限に達したらデッドレター（ingest は再キューしない）。
+ * `article_pipeline_version` が無い失敗は「現在のパイプライン向け」とみなし、カウンタで抑止する。
+ * 保存済みのパイプライン版が `ENRICH_PIPELINE_VERSION` と異なる場合は再挑戦（バージョンアップ）のためスキップしない。
+ */
+export function shouldSkipEnqueueDueToDeadLetter(
+  prev: HnItemEnrichFields | undefined,
+  docExists: boolean,
+  identityFingerprint: string,
+  maxFailures: number,
+): boolean {
+  if (!docExists || !prev) {
+    return false;
+  }
+  if (prev.identity_fingerprint !== identityFingerprint) {
+    return false;
+  }
+  if (prev.enrich_status !== "failed") {
+    return false;
+  }
+  const attemptedPipeline = prev.article_pipeline_version ?? ENRICH_PIPELINE_VERSION;
+  if (attemptedPipeline !== ENRICH_PIPELINE_VERSION) {
+    return false;
+  }
+  return (prev.enrich_failure_count ?? 0) >= maxFailures;
 }

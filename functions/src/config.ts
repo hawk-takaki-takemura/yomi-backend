@@ -13,3 +13,6 @@ export const MAX_TITLE_LENGTH = 200;
  * 将来プロンプトやモデルを変えて再生成したいときに `story_summaries` 側と突き合わせる。
  */
 export const ENRICH_PIPELINE_VERSION = 1;
+
+/** 同一 identity・同一パイプラインで Enrich がこの回数失敗したら ingest は再キューしない */
+export const ENRICH_MAX_FAILURES = 5;

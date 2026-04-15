@@ -86,6 +86,8 @@ function buildFeedMeta(topSlice, newSlice) {
  * **Enrich**: `hn_items.enrich_status`（idle / pending / processing / completed / failed）で状態管理。
  * pending または processing のときは `enrich_queue` に載せない（ワーカー不在でもキュー増殖を防ぐ）。
  * キュー投入時は同一 merge で `enrich_status: pending` を書く。
+ * **失敗**: `failed` かつ `enrich_failure_count` が `ENRICH_MAX_FAILURES` 以上（同一パイプライン版）のときは再キューしない。
+ * identity またはパイプライン版が変わったら `enrich_failure_count` を 0 に戻す。
  */
 exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
     schedule: "every day 04:00",
@@ -103,6 +105,7 @@ exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
     const firestore = admin.firestore();
     const newSnapshotAt = admin.firestore.Timestamp.now();
     let skipped = 0;
+    let deadLetterSkipped = 0;
     const entries = [];
     for (const id of uniqueIds) {
         const item = items.get(id);
@@ -159,9 +162,21 @@ exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
             data.new_snapshot_at = newSnapshotAt;
             data.new_snapshot_rank = meta.newRank;
         }
+        const identityUnchanged = snap.exists && prev?.identity_fingerprint === idFp;
+        const identityChanged = !identityUnchanged;
+        const pipelineVersionChanged = identityUnchanged &&
+            prev?.article_pipeline_version !== undefined &&
+            prev.article_pipeline_version !== config_js_1.ENRICH_PIPELINE_VERSION;
+        if (identityChanged || pipelineVersionChanged) {
+            data.enrich_failure_count = 0;
+        }
         const enrichSatisfied = (0, enrichGate_js_1.isEnrichSatisfiedForIdentity)(prev, snap.exists, idFp);
         const skipEnqueueInFlight = (0, enrichGate_js_1.shouldSkipEnqueueDueToInFlightEnrich)(prev, snap.exists, idFp);
-        const shouldEnqueue = !enrichSatisfied && !skipEnqueueInFlight;
+        const skipDeadLetter = (0, enrichGate_js_1.shouldSkipEnqueueDueToDeadLetter)(prev, snap.exists, idFp, config_js_1.ENRICH_MAX_FAILURES);
+        if (skipDeadLetter) {
+            deadLetterSkipped++;
+        }
+        const shouldEnqueue = !enrichSatisfied && !skipEnqueueInFlight && !skipDeadLetter;
         if (shouldEnqueue) {
             data.enrich_status = "pending";
             queueWrites.push({
@@ -199,6 +214,7 @@ exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
         written: hnWrites.length,
         skipped,
         enrichQueued: queueWrites.length,
+        enrichDeadLetterSkipped: deadLetterSkipped,
     });
 });
 //# sourceMappingURL=scheduledIngest.js.map
