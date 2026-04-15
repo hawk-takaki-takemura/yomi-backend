@@ -39,6 +39,7 @@ const logger = __importStar(require("firebase-functions/logger"));
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const config_js_1 = require("../config.js");
 const client_js_1 = require("../hn/client.js");
+const enrichGate_js_1 = require("../hn/enrichGate.js");
 const storyPolicy_js_1 = require("../hn/storyPolicy.js");
 const fingerprint_js_1 = require("../util/fingerprint.js");
 /** topstories から取り込む件数 */
@@ -81,6 +82,10 @@ function buildFeedMeta(topSlice, newSlice) {
  *
  * **モデレーション**: `dead` / `deleted` に加え `[deleted]` 等のタイトルを取り込まない。
  * **Ask/Show**: `is_text_post` と `hn_text_char_count` を付与し、Enrich は URL 取得ではなく `text` を入力にできる。
+ *
+ * **Enrich**: `hn_items.enrich_status`（idle / pending / processing / completed / failed）で状態管理。
+ * pending または processing のときは `enrich_queue` に載せない（ワーカー不在でもキュー増殖を防ぐ）。
+ * キュー投入時は同一 merge で `enrich_status: pending` を書く。
  */
 exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
     schedule: "every day 04:00",
@@ -154,16 +159,11 @@ exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
             data.new_snapshot_at = newSnapshotAt;
             data.new_snapshot_rank = meta.newRank;
         }
-        hnWrites.push({ ref, data });
-        /**
-         * Claude を無駄に叩かない: 同一 identity で要約済みかつパイプライン版が一致ならキューしない。
-         * 要約ワーカー未デプロイ時は毎回キューに載るが merge のみ（日次なら許容。高頻度取り込みならキュー doc の status で抑止を検討）。
-         */
-        const enrichAlreadyOk = snap.exists &&
-            prev?.identity_fingerprint === idFp &&
-            prev?.article_enrich_complete === true &&
-            prev?.article_pipeline_version === config_js_1.ENRICH_PIPELINE_VERSION;
-        if (!enrichAlreadyOk) {
+        const enrichSatisfied = (0, enrichGate_js_1.isEnrichSatisfiedForIdentity)(prev, snap.exists, idFp);
+        const skipEnqueueInFlight = (0, enrichGate_js_1.shouldSkipEnqueueDueToInFlightEnrich)(prev, snap.exists, idFp);
+        const shouldEnqueue = !enrichSatisfied && !skipEnqueueInFlight;
+        if (shouldEnqueue) {
+            data.enrich_status = "pending";
             queueWrites.push({
                 ref: firestore.collection(exports.ENRICH_QUEUE_COLLECTION).doc(String(item.id)),
                 data: {
@@ -176,6 +176,7 @@ exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
                 },
             });
         }
+        hnWrites.push({ ref, data });
     }
     for (let i = 0; i < hnWrites.length; i += FIRESTORE_BATCH_SIZE) {
         const batch = firestore.batch();

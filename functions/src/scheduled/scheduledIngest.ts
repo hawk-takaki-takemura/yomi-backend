@@ -4,6 +4,11 @@ import {onSchedule} from "firebase-functions/v2/scheduler";
 
 import {ENRICH_PIPELINE_VERSION} from "../config.js";
 import {fetchItemsInBatches, fetchNewStoryIds, fetchTopStoryIds} from "../hn/client.js";
+import {
+  isEnrichSatisfiedForIdentity,
+  shouldSkipEnqueueDueToInFlightEnrich,
+  type HnItemEnrichFields,
+} from "../hn/enrichGate.js";
 import {isHnTextPost, isStoryHiddenByModeration} from "../hn/storyPolicy.js";
 import type {HnItem} from "../hn/types.js";
 import {signalsFingerprint, storyIdentityFingerprint} from "../util/fingerprint.js";
@@ -23,12 +28,8 @@ export const HN_ITEMS_COLLECTION = "hn_items";
 /** 本文取得・要約など「重い処理」のキュー（差分のみ積む） */
 export const ENRICH_QUEUE_COLLECTION = "enrich_queue";
 
-type HnItemPrev = {
+type HnItemPrev = HnItemEnrichFields & {
   first_ingested_at?: FirebaseFirestore.Timestamp;
-  identity_fingerprint?: string;
-  /** Enrich ワーカーが要約成功時に merge する。ingest は同一 identity で Claude を再発火しない */
-  article_enrich_complete?: boolean;
-  article_pipeline_version?: number;
 };
 
 type FeedMeta = {
@@ -66,6 +67,10 @@ function buildFeedMeta(topSlice: number[], newSlice: number[]): Map<number, Feed
  *
  * **モデレーション**: `dead` / `deleted` に加え `[deleted]` 等のタイトルを取り込まない。
  * **Ask/Show**: `is_text_post` と `hn_text_char_count` を付与し、Enrich は URL 取得ではなく `text` を入力にできる。
+ *
+ * **Enrich**: `hn_items.enrich_status`（idle / pending / processing / completed / failed）で状態管理。
+ * pending または processing のときは `enrich_queue` に載せない（ワーカー不在でもキュー増殖を防ぐ）。
+ * キュー投入時は同一 merge で `enrich_status: pending` を書く。
  */
 export const scheduledIngestTick = onSchedule(
   {
@@ -162,19 +167,12 @@ export const scheduledIngestTick = onSchedule(
         data.new_snapshot_rank = meta.newRank;
       }
 
-      hnWrites.push({ref, data});
+      const enrichSatisfied = isEnrichSatisfiedForIdentity(prev, snap.exists, idFp);
+      const skipEnqueueInFlight = shouldSkipEnqueueDueToInFlightEnrich(prev, snap.exists, idFp);
+      const shouldEnqueue = !enrichSatisfied && !skipEnqueueInFlight;
 
-      /**
-       * Claude を無駄に叩かない: 同一 identity で要約済みかつパイプライン版が一致ならキューしない。
-       * 要約ワーカー未デプロイ時は毎回キューに載るが merge のみ（日次なら許容。高頻度取り込みならキュー doc の status で抑止を検討）。
-       */
-      const enrichAlreadyOk =
-        snap.exists &&
-        prev?.identity_fingerprint === idFp &&
-        prev?.article_enrich_complete === true &&
-        prev?.article_pipeline_version === ENRICH_PIPELINE_VERSION;
-
-      if (!enrichAlreadyOk) {
+      if (shouldEnqueue) {
+        data.enrich_status = "pending";
         queueWrites.push({
           ref: firestore.collection(ENRICH_QUEUE_COLLECTION).doc(String(item.id)),
           data: {
@@ -187,6 +185,8 @@ export const scheduledIngestTick = onSchedule(
           },
         });
       }
+
+      hnWrites.push({ref, data});
     }
 
     for (let i = 0; i < hnWrites.length; i += FIRESTORE_BATCH_SIZE) {
