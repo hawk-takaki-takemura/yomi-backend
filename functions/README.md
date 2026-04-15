@@ -45,12 +45,33 @@ git config user.email "hawk-takaki-takemura@users.noreply.github.com"
 
 ## Deploy
 
-- `npm run deploy`
+初回、または `firestore.indexes.json` を変更したあとに **Firestore 複合インデックス**を先にデプロイし、コンソールで **Enabled** になるまで待ってから Functions をデプロイすることを推奨します（インデックス構築中は `scheduledEnrichTick` のクエリが失敗します）。
+
+```bash
+npm run build
+firebase deploy --only firestore:indexes --project <project-id>
+firebase deploy --only functions --project <project-id>
+```
+
+通常は `npm run deploy`（`package.json` では `firebase deploy --only functions`）でよいですが、上記インデックス手順は初回 Enrich ロールアウト時に必須です。
 
 ## Functions
 
-- **Callable:** `translateStories` — タイトル翻訳 + Firestore キャッシュ（既存どおり）
-- **Scheduled:** `scheduledIngestTick` — HN 取り込み用のプレースホルダー（現状はログのみ）
+| 種別 | 名前 | 説明 |
+|------|------|------|
+| Callable | `translateStories` | タイトル一括翻訳 + `translations/{lang}/stories/{id}` キャッシュ（App Check） |
+| Scheduled | `scheduledIngestTick` | HN `topstories` / `newstories` → `hn_items` を merge、要約用に `enrich_queue` へ投入（毎日 04:00 `Asia/Tokyo`） |
+| Scheduled | `scheduledEnrichTick` | `enrich_queue` を消化。本文取得または HN `text` を入力に Claude で要約 JSON を生成し `hn_items.enrichment` へ保存。成功時は `title_ja` を `translations/ja/stories/{id}` にも merge（15 分ごと `Asia/Tokyo`） |
+
+**シークレット:** いずれも `ANTHROPIC_API_KEY` を使用（Enrich は記事要約・日本語タイトル生成に利用）。
+
+**主な Firestore:**
+
+- `hn_items` — ストーリー正本（`identity_fingerprint`、`enrich_status`、`enrichment` など）
+- `enrich_queue` — 要約ジョブ（`status`、`queued_at` など）
+- `translations/ja/stories/{storyId}` — Callable キャッシュ（Enrich 成功時に AI 生成 `title_ja` で上書きされうる）
+
+本番・ステージングの手順・確認項目は `RUNBOOK.md` を参照してください。
 
 ## Callable API
 

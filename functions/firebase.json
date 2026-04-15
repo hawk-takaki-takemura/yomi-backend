@@ -2,5 +2,8 @@
   "functions": {
     "source": ".",
     "runtime": "nodejs22"
+  },
+  "firestore": {
+    "indexes": "firestore.indexes.json"
   }
 }
