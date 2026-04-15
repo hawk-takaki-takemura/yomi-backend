@@ -2,6 +2,8 @@
 
 ## Scope
 
+Functions のローカル開発は **Node.js 22**（`.nvmrc` 参照）を前提とします。デプロイ前に `npm ci && npm run build && npm run lint` を通してください。
+
 This runbook covers production rollout and rollback for translation backend using:
 
 - Firebase Functions (`translateStories`)
@@ -122,13 +124,13 @@ Firebase Console (`yomi-prod`) -> App Check:
 - Android app: configure `Play Integrity`.
 - Enable App Check enforcement for Cloud Functions once app registration is complete.
 
-Note: For debug validation only, temporary debug token registration is allowed, but remove before release.
+Note: Android の debug ビルドでは App Check の **debug provider** を使うため、開発用に **debug トークン** を Firebase Console（`yomi-stg` / `yomi-prod`）へ登録する。運用方針はアプリ側 README の「App Check（Android）」を参照。
 
 ### Pre-release checklist (stg + prod)
 
-- Remove debug tokens that are no longer needed.
-- Confirm production attestation providers are enabled (not debug).
-- Smoke test Callable after switching off debug providers.
+- 不要になった debug トークンを棚卸しして削除する。
+- Play Integrity / App Attest など本番向けプロバイダが有効であることを確認する。
+- Callable のスモークテストを実施する。
 
 ---
 
@@ -184,14 +186,11 @@ make deploy-config-prod
 
 - rotate `ANTHROPIC_API_KEY` regularly
 - monitor error rate / latency / translation volume
-- upgrade runtime and dependencies before deprecation:
-  - Node.js 20 -> supported newer runtime
-  - `firebase-functions` -> latest compatible version
+- keep Functions runtime aligned with Firebase supported Node releases (`firebase.json` の `runtime` と `package.json` の `engines.node`)
 
 ---
 
 ## 10. Backlog (tracked tasks)
 
-- Finalize App Check for stg/prod (remove debug tokens before store release).
-- Upgrade Node.js runtime for Functions (Node 20 deprecation timeline).
-- Upgrade `firebase-functions` to latest compatible major (expect breaking changes).
+- App Check: stg/prod で debug トークンを運用管理（アプリ README の手順に従う）。
+- 依存の定期更新（`firebase-functions` / `firebase-admin` のメジャー追随は互換確認のうえで実施）。

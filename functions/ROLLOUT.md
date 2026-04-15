@@ -1,11 +1,13 @@
 # Translation backend rollout
 
+ブランチ運用は README の「ブランチ・デプロイ運用」に従い、**`dev` で細かく積み、`stg` にマージしてから**ステージングデプロイする想定です。
+
 ## Phase 1: staging deploy
 
 1. Select staging Firebase project.
    - `firebase use <stg-project-id>`
-2. Ensure Claude secret is configured.
-   - `firebase functions:secrets:set CLAUDE_API_KEY`
+2. Ensure Anthropic secret is configured.
+   - `firebase functions:secrets:set ANTHROPIC_API_KEY`
 3. Deploy function.
    - `npm run deploy`
 
@@ -22,7 +24,7 @@
 ## Phase 3: production deploy
 
 1. Select production Firebase project.
-2. Set `CLAUDE_API_KEY` secret for production.
+2. Set `ANTHROPIC_API_KEY` secret for production.
 3. Deploy same function artifact to production.
 
 ## Monitoring checklist
