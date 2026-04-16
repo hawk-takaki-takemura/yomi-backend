@@ -439,3 +439,9 @@ GCP Console → **Monitoring** → **Alerting** → **Create policy**。
 
 - App Check: stg/prod で debug トークンを運用管理（アプリ README の手順に従う）。
 - 依存の定期更新（`firebase-functions` / `firebase-admin` のメジャー追随は互換確認のうえで実施）。
+
+### 非機能要件（コメント翻訳・体験）
+
+- **`translateHnComments` の App Check**: 現状は `yomi-prod` のみ `enforceAppCheck: true`。リリース時に Android SHA 登録・Play Integrity を揃えたうえで、stg も含めて方針を統一するか検討する。
+- **レイテンシ**: 初回は HN 取得 + 未キャッシュ分の Claude 翻訳のため遅くなりやすい。対策候補はフィード上の先読み（表示セル単位）、enrich 対象に限定した上位 N コメントのバッチ翻訳、段階表示（原文先出し）など。
+- **コスト・鮮度**: キュー投入時に全コメントを先翻訳する方式は、無駄翻訳とコメント増加による陳腐化に注意。採用するなら対象絞り（要約済み・高 `descendants` など）を前提に設計する。
