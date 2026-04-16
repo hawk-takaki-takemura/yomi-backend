@@ -249,6 +249,39 @@ make deploy-config-prod
 
 ---
 
+## B-2 title_ja 優先ルール（確定 2026-04-16）
+
+### 背景
+
+`hn_items/{id}.enrichment.title_ja`（enrich パイプライン出力）と
+`translations/ja/stories/{id}`（Callable `translateStories` のキャッシュ）の
+2 経路に日本語タイトルが存在し得るため、UI が参照すべき正を決定する。
+
+### 確定ルール
+
+| 優先順位 | 条件 | 使用する値 |
+|----------|------|------------|
+| 1 | `enrich_status == 'completed'` かつ `enrichment.title_ja` が非空 | `enrichment.title_ja` |
+| 2 | `translatedTitle` あり（Callable 結果） | `translatedTitle` |
+| 3 | どちらもなし | HN 原文 `title` |
+
+### 判断理由
+
+- enrichment は本文コンテキスト込みの Claude パイプライン出力であり、短い英語タイトルのみを翻訳する Callable より意味的精度が高い。
+- 鮮度競合（両方ある場合）でも enrichment を優先する。
+- enrich 未完了・失敗中は Callable のみ（現状の挙動を維持）。
+
+### Flutter 実装
+
+`lib/features/feed/domain/entities/story.dart` の `displayTitle` getter を参照。
+
+### 将来の変更条件
+
+B-4（翻訳品質改善）でプロンプトを変更する場合は本節も合わせて更新する。
+Callable 側で `translations/ja` に `title_ja` が既存の場合にスキップする最適化は、B-4 と同時に検討する。
+
+---
+
 ## 11. Backlog (tracked tasks)
 
 - App Check: stg/prod で debug トークンを運用管理（アプリ README の手順に従う）。
