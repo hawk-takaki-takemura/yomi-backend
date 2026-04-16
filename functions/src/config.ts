@@ -18,7 +18,7 @@ export const ENRICH_PIPELINE_VERSION = 1;
 export const ENRICH_MAX_FAILURES = 5;
 
 /** Enrich ワーカー: 1 回のスケジュール実行で処理する最大件数 */
-export const ENRICH_JOBS_PER_TICK = 4;
+export const ENRICH_JOBS_PER_TICK = 8;
 
 /** 外部 URL 取得のタイムアウト（ms） */
 export const ENRICH_FETCH_TIMEOUT_MS = 12_000;
