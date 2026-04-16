@@ -3,6 +3,7 @@ import * as logger from "firebase-functions/logger";
 import {onSchedule} from "firebase-functions/v2/scheduler";
 
 import {ENRICH_MAX_FAILURES, ENRICH_PIPELINE_VERSION} from "../config.js";
+import {ENRICH_QUEUE_COLLECTION, HN_ITEMS_COLLECTION} from "../firestoreCollections.js";
 import {fetchItemsInBatches, fetchNewStoryIds, fetchTopStoryIds} from "../hn/client.js";
 import {
   isEnrichSatisfiedForIdentity,
@@ -23,11 +24,7 @@ const FETCH_CONCURRENCY = 20;
 /** Firestore バッチ上限 500 未満に抑える */
 const FIRESTORE_BATCH_SIZE = 400;
 
-/** Firestore: ストーリー正本（トップ／新着の両方から merge 更新） */
-export const HN_ITEMS_COLLECTION = "hn_items";
-
-/** 本文取得・要約など「重い処理」のキュー（差分のみ積む） */
-export const ENRICH_QUEUE_COLLECTION = "enrich_queue";
+export {ENRICH_QUEUE_COLLECTION, HN_ITEMS_COLLECTION} from "../firestoreCollections.js";
 
 type HnItemPrev = HnItemEnrichFields & {
   first_ingested_at?: FirebaseFirestore.Timestamp;

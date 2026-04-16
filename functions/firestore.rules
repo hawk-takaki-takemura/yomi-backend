@@ -1,0 +1,28 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /hn_items/{storyId} {
+      allow read: if request.auth != null && storyId.matches('^[0-9]+$');
+      allow write: if false;
+    }
+
+    match /enrich_queue/{jobId} {
+      allow read, write: if false;
+    }
+
+    // `translations/{lang}/stories/...` の親ドキュメント。クライアントからは読み書きとも禁止。
+    match /translations/{lang} {
+      allow read, write: if false;
+    }
+
+    match /translations/{lang}/stories/{storyId} {
+      allow read: if request.auth != null && storyId.matches('^[0-9]+$');
+      allow write: if false;
+    }
+
+    // 上記以外はクライアント read/write 禁止（デフォルトと同じだが明示）
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

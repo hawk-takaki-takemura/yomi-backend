@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.translateTitlesWithClaude = translateTitlesWithClaude;
+exports.completeClaudeWithSystem = completeClaudeWithSystem;
 const https_1 = require("firebase-functions/v2/https");
 const config_js_1 = require("./config.js");
 /**
@@ -32,7 +33,7 @@ async function translateTitlesWithClaude(stories, lang, apiKey) {
         const body = await response.text();
         throw new https_1.HttpsError("internal", `claude failed: ${response.status} ${body}`);
     }
-    const data = await response.json();
+    const data = (await response.json());
     const text = data.content?.[0]?.text;
     if (!text) {
         throw new https_1.HttpsError("internal", "claude response is empty");
@@ -49,5 +50,34 @@ async function translateTitlesWithClaude(stories, lang, apiKey) {
             parsed[id] = title;
     }
     return parsed;
+}
+/**
+ * system + user で Claude を1往復（Enrich 等）。
+ */
+async function completeClaudeWithSystem(options) {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+            "x-api-key": options.apiKey,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        body: JSON.stringify({
+            model: config_js_1.CLAUDE_MODEL,
+            max_tokens: options.maxTokens ?? 4096,
+            system: options.system,
+            messages: [{ role: "user", content: options.user }],
+        }),
+    });
+    if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`claude failed: ${response.status} ${body.slice(0, 500)}`);
+    }
+    const data = (await response.json());
+    const text = data.content?.[0]?.text;
+    if (!text) {
+        throw new Error("claude response is empty");
+    }
+    return { text };
 }
 //# sourceMappingURL=anthropic.js.map

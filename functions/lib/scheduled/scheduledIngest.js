@@ -33,11 +33,12 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.scheduledIngestTick = exports.ENRICH_QUEUE_COLLECTION = exports.HN_ITEMS_COLLECTION = void 0;
+exports.scheduledIngestTick = exports.HN_ITEMS_COLLECTION = exports.ENRICH_QUEUE_COLLECTION = void 0;
 const admin = __importStar(require("firebase-admin"));
 const logger = __importStar(require("firebase-functions/logger"));
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const config_js_1 = require("../config.js");
+const firestoreCollections_js_1 = require("../firestoreCollections.js");
 const client_js_1 = require("../hn/client.js");
 const enrichGate_js_1 = require("../hn/enrichGate.js");
 const storyPolicy_js_1 = require("../hn/storyPolicy.js");
@@ -50,10 +51,9 @@ const NEW_STORY_LIMIT = 120;
 const FETCH_CONCURRENCY = 20;
 /** Firestore バッチ上限 500 未満に抑える */
 const FIRESTORE_BATCH_SIZE = 400;
-/** Firestore: ストーリー正本（トップ／新着の両方から merge 更新） */
-exports.HN_ITEMS_COLLECTION = "hn_items";
-/** 本文取得・要約など「重い処理」のキュー（差分のみ積む） */
-exports.ENRICH_QUEUE_COLLECTION = "enrich_queue";
+var firestoreCollections_js_2 = require("../firestoreCollections.js");
+Object.defineProperty(exports, "ENRICH_QUEUE_COLLECTION", { enumerable: true, get: function () { return firestoreCollections_js_2.ENRICH_QUEUE_COLLECTION; } });
+Object.defineProperty(exports, "HN_ITEMS_COLLECTION", { enumerable: true, get: function () { return firestoreCollections_js_2.HN_ITEMS_COLLECTION; } });
 /** top / new の id をマージし、各 id のリスト所属メタを付与する */
 function buildFeedMeta(topSlice, newSlice) {
     const map = new Map();
@@ -118,7 +118,7 @@ exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
             continue;
         }
         const title = item.title.trim();
-        const ref = firestore.collection(exports.HN_ITEMS_COLLECTION).doc(String(id));
+        const ref = firestore.collection(firestoreCollections_js_1.HN_ITEMS_COLLECTION).doc(String(id));
         const meta = feedMeta.get(id);
         entries.push({ ref, item, title, meta });
     }
@@ -180,7 +180,7 @@ exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
         if (shouldEnqueue) {
             data.enrich_status = "pending";
             queueWrites.push({
-                ref: firestore.collection(exports.ENRICH_QUEUE_COLLECTION).doc(String(item.id)),
+                ref: firestore.collection(firestoreCollections_js_1.ENRICH_QUEUE_COLLECTION).doc(String(item.id)),
                 data: {
                     story_id: item.id,
                     kind: "article_summary",

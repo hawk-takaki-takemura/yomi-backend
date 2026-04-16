@@ -38,7 +38,7 @@ export async function translateTitlesWithClaude(
     throw new HttpsError("internal", `claude failed: ${response.status} ${body}`);
   }
 
-  const data = await response.json() as {content?: Array<{text?: string}>};
+  const data = (await response.json()) as {content?: Array<{text?: string}>};
   const text = data.content?.[0]?.text;
   if (!text) {
     throw new HttpsError("internal", "claude response is empty");
@@ -54,4 +54,45 @@ export async function translateTitlesWithClaude(
     if (id && title) parsed[id] = title;
   }
   return parsed;
+}
+
+export type ClaudeMessageResult = {
+  text: string;
+};
+
+/**
+ * system + user で Claude を1往復（Enrich 等）。
+ */
+export async function completeClaudeWithSystem(options: {
+  apiKey: string;
+  system: string;
+  user: string;
+  maxTokens?: number;
+}): Promise<ClaudeMessageResult> {
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": options.apiKey,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: CLAUDE_MODEL,
+      max_tokens: options.maxTokens ?? 4096,
+      system: options.system,
+      messages: [{role: "user", content: options.user}],
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`claude failed: ${response.status} ${body.slice(0, 500)}`);
+  }
+
+  const data = (await response.json()) as {content?: Array<{text?: string}>};
+  const text = data.content?.[0]?.text;
+  if (!text) {
+    throw new Error("claude response is empty");
+  }
+  return {text};
 }

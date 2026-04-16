@@ -1,0 +1,21 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "enrich_queue",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "queued_at", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "enrich_queue",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "processing_started_at", "order": "ASCENDING"}
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
