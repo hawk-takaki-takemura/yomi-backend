@@ -8,6 +8,7 @@ import {
   CACHE_TTL_HOURS,
   CLAUDE_MODEL,
   ENRICH_FETCH_MAX_BYTES,
+  ENRICH_MAX_PROMPT_CHARS,
   ENRICH_FETCH_TIMEOUT_MS,
   ENRICH_JOBS_PER_TICK,
   ENRICH_PIPELINE_VERSION,
@@ -30,11 +31,9 @@ type ClaimResult =
   | {kind: "obsolete"}
   | {kind: "claimed"; identityFingerprint: string; pipelineVersion: number};
 
-const MAX_PROMPT_CHARS = 95_000;
-
 function truncateForPrompt(s: string): string {
-  if (s.length <= MAX_PROMPT_CHARS) return s;
-  return `${s.slice(0, MAX_PROMPT_CHARS)}\n\n[truncated]`;
+  if (s.length <= ENRICH_MAX_PROMPT_CHARS) return s;
+  return `${s.slice(0, ENRICH_MAX_PROMPT_CHARS)}\n\n[truncated]`;
 }
 
 async function recoverStaleProcessing(firestore: FirebaseFirestore.Firestore): Promise<number> {
