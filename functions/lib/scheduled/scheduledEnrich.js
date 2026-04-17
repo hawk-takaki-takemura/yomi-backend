@@ -41,6 +41,7 @@ const anthropic_js_1 = require("../anthropic.js");
 const config_js_1 = require("../config.js");
 const buildEnrichUserMessage_js_1 = require("../enrich/buildEnrichUserMessage.js");
 const enrichmentTypes_js_1 = require("../enrich/enrichmentTypes.js");
+const processCommentsEnrichment_js_1 = require("../enrich/processCommentsEnrichment.js");
 const extractJsonObject_js_1 = require("../enrich/extractJsonObject.js");
 const fetchArticlePlainText_js_1 = require("../enrich/fetchArticlePlainText.js");
 const htmlToPlainText_js_1 = require("../enrich/htmlToPlainText.js");
@@ -314,6 +315,18 @@ async function processStory(storyId, apiKey) {
         return;
     }
     await persistSuccess(firestore, storyId, enrichment);
+    try {
+        await (0, processCommentsEnrichment_js_1.tryProcessAndPersistCommentsEnrichment)({
+            firestore,
+            storyId,
+            item,
+            title,
+            apiKey,
+        });
+    }
+    catch (e) {
+        logger.warn("enrich.commentsEnrichmentUnexpected", { storyId, err: String(e) });
+    }
 }
 /**
  * `enrich_queue` を消化し、`hn_items.enrichment`（V1）と Enrich 状態を更新する。

@@ -74,7 +74,8 @@ function buildFeedMeta(topSlice: number[], newSlice: number[]): Map<number, Feed
  */
 export const scheduledIngestTick = onSchedule(
   {
-    schedule: "every day 04:00",
+    // 0,3,6,9,12,15,18,21 時（Asia/Tokyo）
+    schedule: "0 */3 * * *",
     timeZone: "Asia/Tokyo",
     region: "asia-northeast1",
     timeoutSeconds: 300,

@@ -16,6 +16,7 @@ import {
 } from "../config.js";
 import {buildEnrichUserMessage} from "../enrich/buildEnrichUserMessage.js";
 import {parseAndNormalizeEnrichmentV1} from "../enrich/enrichmentTypes.js";
+import {tryProcessAndPersistCommentsEnrichment} from "../enrich/processCommentsEnrichment.js";
 import {extractJsonObject} from "../enrich/extractJsonObject.js";
 import {fetchArticlePlainText} from "../enrich/fetchArticlePlainText.js";
 import {htmlToPlainText} from "../enrich/htmlToPlainText.js";
@@ -412,6 +413,18 @@ async function processStory(storyId: number, apiKey: string): Promise<void> {
   }
 
   await persistSuccess(firestore, storyId, enrichment);
+
+  try {
+    await tryProcessAndPersistCommentsEnrichment({
+      firestore,
+      storyId,
+      item,
+      title,
+      apiKey,
+    });
+  } catch (e) {
+    logger.warn("enrich.commentsEnrichmentUnexpected", {storyId, err: String(e)});
+  }
 }
 
 /**

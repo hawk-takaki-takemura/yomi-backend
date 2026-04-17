@@ -90,7 +90,8 @@ function buildFeedMeta(topSlice, newSlice) {
  * identity またはパイプライン版が変わったら `enrich_failure_count` を 0 に戻す。
  */
 exports.scheduledIngestTick = (0, scheduler_1.onSchedule)({
-    schedule: "every day 04:00",
+    // 0,3,6,9,12,15,18,21 時（Asia/Tokyo）
+    schedule: "0 */3 * * *",
     timeZone: "Asia/Tokyo",
     region: "asia-northeast1",
     timeoutSeconds: 300,

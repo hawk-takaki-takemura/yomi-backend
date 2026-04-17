@@ -31,3 +31,23 @@ export const ENRICH_MAX_PROMPT_CHARS = 15_000;
 
 /** `processing` のまま固まったジョブを再キューするまでの時間（ms） */
 export const ENRICH_STALE_PROCESSING_MS = 45 * 60 * 1000;
+
+/** スケジュール enrich 後にコメント事前分析する最小スコア */
+export const COMMENT_ENRICH_MIN_SCORE = 100;
+/** 同上: 最小 descendants（コメント無し近辺はスキップ） */
+export const COMMENT_ENRICH_MIN_DESCENDANTS = 10;
+/** 温め（scheduled enrich の comments_enrichment）: BFS 件数上限 */
+export const COMMENT_ENRICH_MAX_COUNT = 15;
+/** 温め: BFS の最大深さ（0=ストーリ直下のみ。2 なら直下〜孫まで） */
+export const COMMENT_ENRICH_BFS_MAX_DEPTH = 2;
+
+/** Callable `translateHnComments` / `analyzeHnCommentTrends`（無料・匿名）: BFS 件数 */
+export const COMMENT_CALLABLE_FREE_MAX_COUNT = 15;
+/** 同上: BFS 深さ上限 */
+export const COMMENT_CALLABLE_FREE_BFS_MAX_DEPTH = 2;
+/** Callable（プレミアム）: BFS 件数 */
+export const COMMENT_CALLABLE_PREMIUM_MAX_COUNT = 50;
+/** Callable（プレミアム）: BFS 深さ上限 */
+export const COMMENT_CALLABLE_PREMIUM_BFS_MAX_DEPTH = 5;
+/** 1 コメントあたりの本文上限（文字） */
+export const COMMENT_ENRICH_MAX_TEXT_CHARS = 1200;

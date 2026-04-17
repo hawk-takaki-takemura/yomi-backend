@@ -442,7 +442,7 @@ GCP Console → **Monitoring** → **Alerting** → **Create policy**。
 
 ### 非機能要件（コメント翻訳・体験）
 
-- **有料フラグ**: Firestore `users/{uid}` に `isPremium: true` を置くと Callable がコメント取得・翻訳上限 **150** を適用（無料は **20**）。書き込みはクライアント禁止（RevenueCat Webhook / 手動運用などで Admin 更新を想定）。ルールは本人 read のみ許可。
+- **有料フラグ**: Firestore `users/{uid}` に `isPremium: true` を置くと Callable がコメント BFS 上限 **50 件・深さ 5** を適用（無料・匿名は **15 件・深さ 2**）。書き込みはクライアント禁止（RevenueCat Webhook / 手動運用などで Admin 更新を想定）。ルールは本人 read のみ許可。
 - **`translateHnComments` の App Check**: 現状は `yomi-prod` のみ `enforceAppCheck: true`。リリース時に Android SHA 登録・Play Integrity を揃えたうえで、stg も含めて方針を統一するか検討する。
 - **レイテンシ**: 初回は HN 取得 + 未キャッシュ分の Claude 翻訳のため遅くなりやすい。`translateHnComments` は BFS をウェーブ単位で HN item を並列取得し、コメント本文の二重フェッチを避ける（それでも未キャッシュ翻訳は Claude 往復が支配的になり得る）。追加対策候補はフィード上の先読み、段階表示（原文先出し）、Firestore バッチ read など。
 - **コスト・鮮度**: キュー投入時に全コメントを先翻訳する方式は、無駄翻訳とコメント増加による陳腐化に注意。採用するなら対象絞り（要約済み・高 `descendants` など）を前提に設計する。
@@ -515,7 +515,7 @@ GCP Console → **Monitoring** → **Alerting** → **Create policy**。
 **スレッド要約（詳細画面内）**
 
 - **方針**: 記事要約の品質調整（B-4）と同じフェーズで扱う。プロンプト・入力範囲・誤訳の見せ方をまとめてチューニングする。
-- **入力の現状**: `translateHnComments` は BFS。上限は **無料 20 件** / **`users/{uid}.isPremium == true` のとき 150 件**（クライアントの `limit` はティア上限でクランプ。未指定ならティア既定）。スレッド要約の網羅感はこの取得戦略に直結する（スコア順トップ N ではない）。
+- **入力の現状**: `translateHnComments` / `analyzeHnCommentTrends` は BFS（`collectCommentsBreadthFirst`）。上限は **無料・匿名 15 件・深さ 2** / **プレミアム 50 件・深さ 5**（`config.ts` の `COMMENT_CALLABLE_*`。クライアントの `limit` はティア上限でクランプ。未指定ならティア既定）。スレッド要約の網羅感はこの取得戦略に直結する（スコア順トップ N ではない）。
 - **実装案の整理**:
   - **推奨**: 新規 Callable（または既存 Callable の拡張）でサーバーから Claude 呼び出し。**API キーをクライアントに置かない**。
   - **最小コスト案（非推奨）**: 詳細で翻訳済みコメントを受け取ったあとクライアントから Anthropic API を直接叩く → キー流出リスクのため原則避ける。
