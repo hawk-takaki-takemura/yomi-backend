@@ -9,18 +9,26 @@ import {
   COMMENT_CALLABLE_PREMIUM_MAX_COUNT,
 } from "./config.js";
 
+export type CommentCallableBfsTier = {
+  maxCount: number;
+  maxDepth: number;
+  /** Firestore キャッシュ等のキー分離用 */
+  kind: "free" | "premium";
+};
+
 /**
  * `translateHnComments` / `analyzeHnCommentTrends` など、HN コメント BFS のティア別上限。
  * 無料・匿名: 件数少・浅め（概観）。プレミアム: 件数多・深め（深い議論まで）。
  */
 export async function resolveCommentCallableBfsTier(
   request: CallableRequest,
-): Promise<{maxCount: number; maxDepth: number}> {
+): Promise<CommentCallableBfsTier> {
   const uid = request.auth?.uid;
   if (!uid) {
     return {
       maxCount: COMMENT_CALLABLE_FREE_MAX_COUNT,
       maxDepth: COMMENT_CALLABLE_FREE_BFS_MAX_DEPTH,
+      kind: "free",
     };
   }
   try {
@@ -30,6 +38,7 @@ export async function resolveCommentCallableBfsTier(
       return {
         maxCount: COMMENT_CALLABLE_PREMIUM_MAX_COUNT,
         maxDepth: COMMENT_CALLABLE_PREMIUM_BFS_MAX_DEPTH,
+        kind: "premium",
       };
     }
   } catch (e) {
@@ -38,5 +47,6 @@ export async function resolveCommentCallableBfsTier(
   return {
     maxCount: COMMENT_CALLABLE_FREE_MAX_COUNT,
     maxDepth: COMMENT_CALLABLE_FREE_BFS_MAX_DEPTH,
+    kind: "free",
   };
 }

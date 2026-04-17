@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.analyzeHnCommentTrends = void 0;
+const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const logger = __importStar(require("firebase-functions/logger"));
 const anthropic_js_1 = require("./anthropic.js");
@@ -41,12 +42,16 @@ const config_js_1 = require("./config.js");
 const commentCallableTier_js_1 = require("./commentCallableTier.js");
 const extractJsonObject_js_1 = require("./enrich/extractJsonObject.js");
 const htmlToPlainText_js_1 = require("./enrich/htmlToPlainText.js");
+const firestoreCollections_js_1 = require("./firestoreCollections.js");
 const collectCommentsBreadthFirst_js_1 = require("./hn/collectCommentsBreadthFirst.js");
 const client_js_1 = require("./hn/client.js");
 /** クライアントが `limit` を省略したときのデフォルトはティア別（handler で決定）。 */
 const MAX_SNIPPETS = config_js_1.COMMENT_CALLABLE_PREMIUM_MAX_COUNT;
 /** 1 コメントあたりの最大文字（プロンプト肥大化防止）。 */
 const MAX_TEXT_LEN = 2000;
+function commentTrendsCacheFieldName(kind) {
+    return kind === "premium" ? "comment_trends_cache_premium" : "comment_trends_cache_free";
+}
 const projectId = process.env.GCLOUD_PROJECT ?? process.env.GOOGLE_CLOUD_PROJECT ?? "";
 const enforceAppCheckAnalyzeTrends = projectId === "yomi-prod";
 function assertPayload(data) {
@@ -205,16 +210,42 @@ exports.analyzeHnCommentTrends = (0, https_1.onCall)({
     const payload = assertPayload(request.data);
     const tier = await (0, commentCallableTier_js_1.resolveCommentCallableBfsTier)(request);
     const limit = Math.min(payload.limit ?? tier.maxCount, tier.maxCount);
-    let snippets = parseCommentSnippets(payload.comments, tier.maxCount);
-    if (!snippets) {
-        snippets = await loadSnippetsFromHn(payload.storyId, limit, tier.maxDepth);
+    const fromClient = parseCommentSnippets(payload.comments, tier.maxCount);
+    let snippets;
+    /** クライアント任意コメントは入力が不定のため hn_items キャッシュの対象外 */
+    let cacheEligible = false;
+    if (fromClient) {
+        snippets = fromClient.slice(0, limit);
     }
     else {
-        snippets = snippets.slice(0, limit);
+        snippets = await loadSnippetsFromHn(payload.storyId, limit, tier.maxDepth);
+        cacheEligible = true;
     }
     if (snippets.length === 0) {
         logger.info("analyzeHnCommentTrends.empty", { storyId: payload.storyId });
         return { storyId: payload.storyId, trend: null };
+    }
+    const firestore = admin.firestore();
+    const hnRef = firestore.collection(firestoreCollections_js_1.HN_ITEMS_COLLECTION).doc(String(payload.storyId));
+    const cacheField = commentTrendsCacheFieldName(tier.kind);
+    const ttlMs = config_js_1.TRENDS_CACHE_TTL_HOURS * 60 * 60 * 1000;
+    const expiresBefore = Date.now() - ttlMs;
+    if (cacheEligible) {
+        const hnSnap = await hnRef.get();
+        const cached = hnSnap.data()?.[cacheField];
+        if (cached?.trend &&
+            cached.cached_at &&
+            typeof cached.limit === "number" &&
+            typeof cached.max_depth === "number" &&
+            cached.limit === limit &&
+            cached.max_depth === tier.maxDepth &&
+            cached.cached_at.toMillis() > expiresBefore) {
+            logger.info("analyzeHnCommentTrends.cacheHit", {
+                storyId: payload.storyId,
+                tier: tier.kind,
+            });
+            return { storyId: payload.storyId, trend: cached.trend };
+        }
     }
     const apiKey = config_js_1.ANTHROPIC_API_KEY.value();
     if (!apiKey) {
@@ -250,6 +281,25 @@ exports.analyzeHnCommentTrends = (0, https_1.onCall)({
         throw new https_1.HttpsError("internal", "failed to parse model output");
     }
     const trend = coerceTrendJson(parsed);
+    if (cacheEligible) {
+        try {
+            await hnRef.set({
+                [cacheField]: {
+                    trend,
+                    cached_at: admin.firestore.FieldValue.serverTimestamp(),
+                    ttl_hours: config_js_1.TRENDS_CACHE_TTL_HOURS,
+                    limit,
+                    max_depth: tier.maxDepth,
+                },
+            }, { merge: true });
+        }
+        catch (e) {
+            logger.warn("analyzeHnCommentTrends.cacheWriteFailed", {
+                storyId: payload.storyId,
+                err: String(e),
+            });
+        }
+    }
     return {
         storyId: payload.storyId,
         trend,

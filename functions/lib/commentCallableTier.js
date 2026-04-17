@@ -47,6 +47,7 @@ async function resolveCommentCallableBfsTier(request) {
         return {
             maxCount: config_js_1.COMMENT_CALLABLE_FREE_MAX_COUNT,
             maxDepth: config_js_1.COMMENT_CALLABLE_FREE_BFS_MAX_DEPTH,
+            kind: "free",
         };
     }
     try {
@@ -56,6 +57,7 @@ async function resolveCommentCallableBfsTier(request) {
             return {
                 maxCount: config_js_1.COMMENT_CALLABLE_PREMIUM_MAX_COUNT,
                 maxDepth: config_js_1.COMMENT_CALLABLE_PREMIUM_BFS_MAX_DEPTH,
+                kind: "premium",
             };
         }
     }
@@ -65,6 +67,7 @@ async function resolveCommentCallableBfsTier(request) {
     return {
         maxCount: config_js_1.COMMENT_CALLABLE_FREE_MAX_COUNT,
         maxDepth: config_js_1.COMMENT_CALLABLE_FREE_BFS_MAX_DEPTH,
+        kind: "free",
     };
 }
 //# sourceMappingURL=commentCallableTier.js.map

@@ -1,11 +1,17 @@
+import * as admin from "firebase-admin";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
 import {completeClaudeWithSystem} from "./anthropic.js";
-import {ANTHROPIC_API_KEY, COMMENT_CALLABLE_PREMIUM_MAX_COUNT} from "./config.js";
+import {
+  ANTHROPIC_API_KEY,
+  COMMENT_CALLABLE_PREMIUM_MAX_COUNT,
+  TRENDS_CACHE_TTL_HOURS,
+} from "./config.js";
 import {resolveCommentCallableBfsTier} from "./commentCallableTier.js";
 import {extractJsonObject} from "./enrich/extractJsonObject.js";
 import {htmlToPlainText} from "./enrich/htmlToPlainText.js";
+import {HN_ITEMS_COLLECTION} from "./firestoreCollections.js";
 import {collectCommentsBreadthFirst} from "./hn/collectCommentsBreadthFirst.js";
 import {fetchItem} from "./hn/client.js";
 
@@ -34,6 +40,20 @@ type TrendJson = {
   criticalOpinion: string;
   keywords: string[];
 };
+
+type CommentTrendsCacheStored = {
+  trend: TrendJson;
+  cached_at: FirebaseFirestore.Timestamp;
+  ttl_hours?: number;
+  limit: number;
+  max_depth: number;
+};
+
+function commentTrendsCacheFieldName(
+  kind: "free" | "premium",
+): "comment_trends_cache_free" | "comment_trends_cache_premium" {
+  return kind === "premium" ? "comment_trends_cache_premium" : "comment_trends_cache_free";
+}
 
 const projectId =
   process.env.GCLOUD_PROJECT ?? process.env.GOOGLE_CLOUD_PROJECT ?? "";
@@ -198,16 +218,46 @@ export const analyzeHnCommentTrends = onCall(
     const tier = await resolveCommentCallableBfsTier(request);
     const limit = Math.min(payload.limit ?? tier.maxCount, tier.maxCount);
 
-    let snippets = parseCommentSnippets(payload.comments, tier.maxCount);
-    if (!snippets) {
-      snippets = await loadSnippetsFromHn(payload.storyId, limit, tier.maxDepth);
+    const fromClient = parseCommentSnippets(payload.comments, tier.maxCount);
+    let snippets: CommentSnippet[];
+    /** クライアント任意コメントは入力が不定のため hn_items キャッシュの対象外 */
+    let cacheEligible = false;
+    if (fromClient) {
+      snippets = fromClient.slice(0, limit);
     } else {
-      snippets = snippets.slice(0, limit);
+      snippets = await loadSnippetsFromHn(payload.storyId, limit, tier.maxDepth);
+      cacheEligible = true;
     }
 
     if (snippets.length === 0) {
       logger.info("analyzeHnCommentTrends.empty", {storyId: payload.storyId});
       return {storyId: payload.storyId, trend: null};
+    }
+
+    const firestore = admin.firestore();
+    const hnRef = firestore.collection(HN_ITEMS_COLLECTION).doc(String(payload.storyId));
+    const cacheField = commentTrendsCacheFieldName(tier.kind);
+    const ttlMs = TRENDS_CACHE_TTL_HOURS * 60 * 60 * 1000;
+    const expiresBefore = Date.now() - ttlMs;
+
+    if (cacheEligible) {
+      const hnSnap = await hnRef.get();
+      const cached = hnSnap.data()?.[cacheField] as CommentTrendsCacheStored | undefined;
+      if (
+        cached?.trend &&
+        cached.cached_at &&
+        typeof cached.limit === "number" &&
+        typeof cached.max_depth === "number" &&
+        cached.limit === limit &&
+        cached.max_depth === tier.maxDepth &&
+        cached.cached_at.toMillis() > expiresBefore
+      ) {
+        logger.info("analyzeHnCommentTrends.cacheHit", {
+          storyId: payload.storyId,
+          tier: tier.kind,
+        });
+        return {storyId: payload.storyId, trend: cached.trend};
+      }
     }
 
     const apiKey = ANTHROPIC_API_KEY.value();
@@ -249,6 +299,28 @@ export const analyzeHnCommentTrends = onCall(
     }
 
     const trend = coerceTrendJson(parsed);
+
+    if (cacheEligible) {
+      try {
+        await hnRef.set(
+          {
+            [cacheField]: {
+              trend,
+              cached_at: admin.firestore.FieldValue.serverTimestamp(),
+              ttl_hours: TRENDS_CACHE_TTL_HOURS,
+              limit,
+              max_depth: tier.maxDepth,
+            },
+          },
+          {merge: true},
+        );
+      } catch (e) {
+        logger.warn("analyzeHnCommentTrends.cacheWriteFailed", {
+          storyId: payload.storyId,
+          err: String(e),
+        });
+      }
+    }
 
     return {
       storyId: payload.storyId,

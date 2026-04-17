@@ -520,3 +520,26 @@ GCP Console → **Monitoring** → **Alerting** → **Create policy**。
   - **推奨**: 新規 Callable（または既存 Callable の拡張）でサーバーから Claude 呼び出し。**API キーをクライアントに置かない**。
   - **最小コスト案（非推奨）**: 詳細で翻訳済みコメントを受け取ったあとクライアントから Anthropic API を直接叩く → キー流出リスクのため原則避ける。
 - **やらない（現フェーズ）**: フィード TOP にコメント要約を常設する。enrich パイプラインへの追加になり工数・コストが大きい → **Phase 2 以降**で要件見直し。
+
+## コメント温め・キャッシュ設計（確定 2026-04-18）
+
+### 温め処理（全ユーザー・バックグラウンド）
+
+- `score >= 100` かつ `descendants >= 10` の記事のみ（`config.ts` の `COMMENT_ENRICH_MIN_SCORE` / `COMMENT_ENRICH_MIN_DESCENDANTS`）
+- BFS 上位 15 件・深さ 2（`COMMENT_ENRICH_MAX_COUNT` / `COMMENT_ENRICH_BFS_MAX_DEPTH`）
+- `hn_items/{storyId}.comments_enrichment` に保存（`scheduledEnrich` の記事 enrich 成功後）
+
+### 傾向分析キャッシュ
+
+- `hn_items/{storyId}.comment_trends_cache_free`（論理 TTL 6h、`TRENDS_CACHE_TTL_HOURS`）
+- `hn_items/{storyId}.comment_trends_cache_premium`（同上）
+- HN から `loadSnippetsFromHn` した場合のみ読み書き（クライアントが `comments` を渡した Callable はキャッシュ対象外）
+- ヒット条件は `limit` / `max_depth` が保存時と一致することも含む（ティア別フィールドで無料・有料の結果を混在させない）
+
+### プラン別解放時間（Phase 2 実装予定）
+
+| プラン | 翻訳・要約 | コメント |
+| :--- | :--- | :--- |
+| 無料 | enrich 完了から +3 時間 | 温め済み上位 15 件 |
+| スタンダード | enrich 完了と同時 | 温め済み上位 15 件 |
+| プレミアム | リアルタイム | Callable で 50 件 |
