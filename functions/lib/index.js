@@ -1,12 +1,14 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.scheduledEnrichTick = exports.scheduledIngestTick = exports.translateHnComments = exports.translateStories = void 0;
+exports.scheduledEnrichTick = exports.scheduledIngestTick = exports.getRecommendedFeed = exports.translateHnComments = exports.translateStories = void 0;
 // Firebase Admin は各モジュールより先に初期化する
 require("./initFirebase.js");
 var translateStories_js_1 = require("./translateStories.js");
 Object.defineProperty(exports, "translateStories", { enumerable: true, get: function () { return translateStories_js_1.translateStories; } });
 var translateHnComments_js_1 = require("./translateHnComments.js");
 Object.defineProperty(exports, "translateHnComments", { enumerable: true, get: function () { return translateHnComments_js_1.translateHnComments; } });
+var getRecommendedFeed_js_1 = require("./getRecommendedFeed.js");
+Object.defineProperty(exports, "getRecommendedFeed", { enumerable: true, get: function () { return getRecommendedFeed_js_1.getRecommendedFeed; } });
 var scheduledIngest_js_1 = require("./scheduled/scheduledIngest.js");
 Object.defineProperty(exports, "scheduledIngestTick", { enumerable: true, get: function () { return scheduledIngest_js_1.scheduledIngestTick; } });
 var scheduledEnrich_js_1 = require("./scheduled/scheduledEnrich.js");

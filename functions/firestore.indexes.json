@@ -15,6 +15,14 @@
         {"fieldPath": "status", "order": "ASCENDING"},
         {"fieldPath": "processing_started_at", "order": "ASCENDING"}
       ]
+    },
+    {
+      "collectionGroup": "hn_items",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "enrich_status", "order": "ASCENDING"},
+        {"fieldPath": "enrichment.tags", "arrayConfig": "CONTAINS"}
+      ]
     }
   ],
   "fieldOverrides": []
