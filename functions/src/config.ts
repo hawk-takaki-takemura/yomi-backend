@@ -18,13 +18,16 @@ export const ENRICH_PIPELINE_VERSION = 1;
 export const ENRICH_MAX_FAILURES = 5;
 
 /** Enrich ワーカー: 1 回のスケジュール実行で処理する最大件数 */
-export const ENRICH_JOBS_PER_TICK = 8;
+export const ENRICH_JOBS_PER_TICK = 3;
 
 /** 外部 URL 取得のタイムアウト（ms） */
 export const ENRICH_FETCH_TIMEOUT_MS = 12_000;
 
 /** 外部 HTML の読み取り上限（バイト） */
-export const ENRICH_FETCH_MAX_BYTES = 900_000;
+export const ENRICH_FETCH_MAX_BYTES = 50_000;
+
+/** プロンプトに含める本文テキスト上限（文字数） */
+export const ENRICH_MAX_PROMPT_CHARS = 15_000;
 
 /** `processing` のまま固まったジョブを再キューするまでの時間（ms） */
 export const ENRICH_STALE_PROCESSING_MS = 45 * 60 * 1000;

@@ -49,11 +49,10 @@ const client_js_1 = require("../hn/client.js");
 const storyPolicy_js_1 = require("../hn/storyPolicy.js");
 const enrichV1System_js_1 = require("../prompts/enrichV1System.js");
 const fingerprint_js_1 = require("../util/fingerprint.js");
-const MAX_PROMPT_CHARS = 95_000;
 function truncateForPrompt(s) {
-    if (s.length <= MAX_PROMPT_CHARS)
+    if (s.length <= config_js_1.ENRICH_MAX_PROMPT_CHARS)
         return s;
-    return `${s.slice(0, MAX_PROMPT_CHARS)}\n\n[truncated]`;
+    return `${s.slice(0, config_js_1.ENRICH_MAX_PROMPT_CHARS)}\n\n[truncated]`;
 }
 async function recoverStaleProcessing(firestore) {
     const threshold = admin.firestore.Timestamp.fromMillis(Date.now() - config_js_1.ENRICH_STALE_PROCESSING_MS);

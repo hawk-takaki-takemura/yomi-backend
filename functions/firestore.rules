@@ -6,6 +6,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // 課金フラグ等（クライアントは自分のドキュメントのみ読める。書き込みは Functions/Admin のみ）
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false;
+    }
+
     match /enrich_queue/{jobId} {
       allow read, write: if false;
     }
